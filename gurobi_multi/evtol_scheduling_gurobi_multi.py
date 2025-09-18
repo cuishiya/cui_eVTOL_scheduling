@@ -75,6 +75,13 @@ def solve_pareto_front_optimization(
         pareto_solutions = _filter_pareto_front(pareto_solutions)
         pareto_solutions.sort(key=lambda x: x["total_energy_consumption"])
     
+        # 选择一个前沿解进行可视化
+        if verbose and pareto_solutions:
+            # 选择延误最小的解进行可视化
+            best_solution = min(pareto_solutions, key=lambda x: x["total_delay"])
+            print(f"\n选择前沿解进行可视化 (能耗={best_solution['total_energy_consumption']:.1f}, 延误={best_solution['total_delay']:.1f})")
+            _visualize_gurobi_multi_solution(best_solution)
+    
     return {
         "status": "optimal",
         "method": "epsilon_constraint",
@@ -228,6 +235,31 @@ def solve_single_optimization_with_constraint(
     for c in range(num_chains):
         chain_start[c] = model.addVar(vtype=GRB.INTEGER, lb=0, ub=time_horizon, name=f"chain_start_{c}")
 
+    # 任务串的结束时间 (用于任务串间隔约束)
+    chain_end = {}
+    for c in range(num_chains):
+        chain_end[c] = model.addVar(vtype=GRB.INTEGER, lb=0, ub=time_horizon, name=f"chain_end_{c}")
+
+    # 任务串分配指示变量 (用于任务串间隔约束)
+    b_chain_evtol = {}
+    for c in range(num_chains):
+        for k in range(num_evtols):
+            b_chain_evtol[c, k] = model.addVar(vtype=GRB.BINARY, name=f"b_{c}_{k}")
+
+    # 任务串对分配指示变量 (用于任务串间隔约束)
+    both_assigned = {}
+    for k in range(num_evtols):
+        for c1 in range(num_chains):
+            for c2 in range(c1 + 1, num_chains):
+                both_assigned[c1, c2, k] = model.addVar(vtype=GRB.BINARY, name=f"both_assigned_{c1}_{c2}_{k}")
+
+    # 任务串顺序指示变量 (用于任务串间隔约束)
+    chain_order = {}
+    for k in range(num_evtols):
+        for c1 in range(num_chains):
+            for c2 in range(c1 + 1, num_chains):
+                chain_order[c1, c2, k] = model.addVar(vtype=GRB.BINARY, name=f"order_{c1}_{c2}_{k}")
+
     model.update()
 
     # ===== 2. 定义约束条件（与原始gurobi完全相同）=====
@@ -336,45 +368,35 @@ def solve_single_optimization_with_constraint(
     # 2.7 任务串之间的时间间隔约束
     chain_interval_time = 30  # 任务串之间的最小间隔时间（分钟）
 
-    # 辅助变量：任务串的结束时间
-    chain_end = {}
-    for c in range(num_chains):
-        chain_end[c] = model.addVar(vtype=GRB.INTEGER, lb=0, ub=time_horizon, name=f"chain_end_{c}")
-
     # 计算每个任务串的结束时间
     for c, chain in enumerate(task_chains):
         last_task_id = chain[-1]
         model.addConstr(chain_end[c] == task_end[last_task_id], f"chain_end_time_{c}")
 
+    # 定义任务串分配指示变量的约束
+    for c in range(num_chains):
+        for k in range(num_evtols):
+            model.addConstr(b_chain_evtol[c, k] == gp.quicksum(y[c, k, t] for t in range(time_horizon)), 
+                          f"chain_evtol_assignment_{c}_{k}")
+
     # 对于每架eVTOL，其执行的任意两个任务串之间必须有时间间隔
     for k in range(num_evtols):
         for c1 in range(num_chains):
             for c2 in range(c1 + 1, num_chains):
-                # b_c1_k = 1 表示任务串c1分配给eVTOL k
-                b_c1_k = model.addVar(vtype=GRB.BINARY, name=f"b_{c1}_{k}")
-                model.addConstr(b_c1_k == gp.quicksum(y[c1, k, t] for t in range(time_horizon)))
+                # 定义both_assigned约束: 当且仅当c1和c2都分配给eVTOL k时为1
+                model.addConstr(both_assigned[c1, c2, k] <= b_chain_evtol[c1, k], f"both_assigned_1_{c1}_{c2}_{k}")
+                model.addConstr(both_assigned[c1, c2, k] <= b_chain_evtol[c2, k], f"both_assigned_2_{c1}_{c2}_{k}")
+                model.addConstr(both_assigned[c1, c2, k] >= b_chain_evtol[c1, k] + b_chain_evtol[c2, k] - 1, 
+                              f"both_assigned_3_{c1}_{c2}_{k}")
 
-                # b_c2_k = 1 表示任务串c2分配给eVTOL k
-                b_c2_k = model.addVar(vtype=GRB.BINARY, name=f"b_{c2}_{k}")
-                model.addConstr(b_c2_k == gp.quicksum(y[c2, k, t] for t in range(time_horizon)))
-
-                # both_assigned = 1 表示c1和c2都分配给eVTOL k
-                both_assigned = model.addVar(vtype=GRB.BINARY, name=f"both_assigned_{c1}_{c2}_{k}")
-                model.addConstr(both_assigned <= b_c1_k)
-                model.addConstr(both_assigned <= b_c2_k)
-                model.addConstr(both_assigned >= b_c1_k + b_c2_k - 1)
-
-                # c1_before_c2 = 1 表示任务串c1在c2之前执行
-                c1_before_c2 = model.addVar(vtype=GRB.BINARY, name=f"order_{c1}_{c2}_{k}")
-
-                # Big-M 约束
+                # Big-M 约束确保任务串间隔
                 M = time_horizon
                 model.addConstr(
-                    chain_end[c1] + chain_interval_time <= chain_start[c2] + M * (1 - c1_before_c2) + M * (1 - both_assigned),
+                    chain_end[c1] + chain_interval_time <= chain_start[c2] + M * (1 - chain_order[c1, c2, k]) + M * (1 - both_assigned[c1, c2, k]),
                     f"chain_interval_1_{c1}_{c2}_{k}"
                 )
                 model.addConstr(
-                    chain_end[c2] + chain_interval_time <= chain_start[c1] + M * c1_before_c2 + M * (1 - both_assigned),
+                    chain_end[c2] + chain_interval_time <= chain_start[c1] + M * chain_order[c1, c2, k] + M * (1 - both_assigned[c1, c2, k]),
                     f"chain_interval_2_{c1}_{c2}_{k}"
                 )
 
@@ -483,6 +505,19 @@ def solve_single_optimization_with_constraint(
         return result
     else:
         return {"status": "infeasible", "solve_time": solve_time}
+
+def _visualize_gurobi_multi_solution(solution):
+    """
+    可视化Gurobi Multi解
+    """
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from visualization import visualize_schedule_table, visualize_schedule_gantt
+    
+    if "schedule" in solution and solution["schedule"]:
+        visualize_schedule_table(solution["schedule"], "Gurobi Multi", "picture_result/evtol_schedule_table_gurobi_multi.png")
+        visualize_schedule_gantt(solution["schedule"], "Gurobi Multi", "picture_result/evtol_schedule_gurobi_multi.png")
 
 def visualize_pareto_front_gurobi_epsilon(result: Dict, save_path: str = "picture_result/pareto_front_gurobi_epsilon_constraint.png"):
     """可视化Gurobi epsilon约束方法的帕累托前沿"""

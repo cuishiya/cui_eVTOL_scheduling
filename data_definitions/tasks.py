@@ -34,22 +34,21 @@ TASKS = [
     {"id": 20, "from": 4, "to": 2, "earliest_start": 0, "latest_start": 130, "duration": [14, 16, 18], "soc_consumption": [32, 41, 51]},
     
     # 原有任务保持不变
-    # {"id": 0, "from": 3, "to": 2, "earliest_start": 45, "latest_start": 180, "duration": [4, 7, 10], "soc_consumption": [19, 32, 50]},
-    # {"id": 1, "from": 1, "to": 4, "earliest_start": 210, "latest_start": 350, "duration": [5, 8, 11], "soc_consumption": [26, 39, 57]},
-    # {"id": 2, "from": 4, "to": 3, "earliest_start": 15, "latest_start": 140, "duration": [5, 8, 11], "soc_consumption": [26, 39, 57]},
+    # {"id": 21, "from": 1, "to": 4, "earliest_start": 10, "latest_start": 350, "duration": [5, 8, 11], "soc_consumption": [26, 39, 57]},
+    # {"id": 22, "from": 4, "to": 3, "earliest_start": 15, "latest_start": 140, "duration": [5, 8, 11], "soc_consumption": [26, 39, 57]},
 
-    # {"id": 3, "from": 2, "to": 1, "earliest_start": 380, "latest_start": 520, "duration": [6, 8, 12], "soc_consumption": [28, 42, 61]},
-    # {"id": 4, "from": 3, "to": 4, "earliest_start": 75, "latest_start": 190, "duration": [4, 7, 10], "soc_consumption": [19, 32, 50]},
+    # {"id": 23, "from": 2, "to": 1, "earliest_start": 80, "latest_start": 520, "duration": [6, 8, 12], "soc_consumption": [28, 42, 61]},
+    # {"id": 24, "from": 3, "to": 4, "earliest_start": 75, "latest_start": 190, "duration": [4, 7, 10], "soc_consumption": [19, 32, 50]},
 
-    # {"id": 5, "from": 1, "to": 3, "earliest_start": 280, "latest_start": 420, "duration": [4, 7, 10], "soc_consumption": [19, 32, 50]},
-    # {"id": 6, "from": 4, "to": 2, "earliest_start": 125, "latest_start": 260, "duration": [5, 7, 10], "soc_consumption": [23, 36, 53]},
-    # {"id": 7, "from": 2, "to": 3, "earliest_start": 450, "latest_start": 580, "duration": [6, 8, 12], "soc_consumption": [28, 42, 61]},
+    # {"id": 25, "from": 1, "to": 3, "earliest_start": 80, "latest_start": 420, "duration": [4, 7, 10], "soc_consumption": [19, 32, 50]},
+    # {"id": 26, "from": 4, "to": 2, "earliest_start": 25, "latest_start": 260, "duration": [5, 7, 10], "soc_consumption": [23, 36, 53]},
+    # {"id": 27, "from": 2, "to": 3, "earliest_start": 50, "latest_start": 580, "duration": [6, 8, 12], "soc_consumption": [28, 42, 61]},
 
-    # {"id": 8, "from": 3, "to": 1, "earliest_start": 160, "latest_start": 290, "duration": [5, 8, 11], "soc_consumption": [26, 39, 57]},
-    # {"id": 9, "from": 4, "to": 1, "earliest_start": 320, "latest_start": 480, "duration": [4, 7, 10], "soc_consumption": [19, 32, 50]},
+    # {"id": 28, "from": 3, "to": 1, "earliest_start": 60, "latest_start": 290, "duration": [5, 8, 11], "soc_consumption": [26, 39, 57]},
+    # {"id": 29, "from": 4, "to": 1, "earliest_start": 30, "latest_start": 480, "duration": [4, 7, 10], "soc_consumption": [19, 32, 50]},
 
-    # {"id": 10, "from": 2, "to": 4, "earliest_start": 35, "latest_start": 170, "duration": [5, 7, 10], "soc_consumption": [23, 36, 53]},
-    # {"id": 11, "from": 1, "to": 2, "earliest_start": 390, "latest_start": 530, "duration": [5, 8, 11], "soc_consumption": [26, 39, 57]},
+    # {"id": 30, "from": 2, "to": 4, "earliest_start": 35, "latest_start": 170, "duration": [5, 7, 10], "soc_consumption": [23, 36, 53]},
+    # # {"id": 11, "from": 1, "to": 2, "earliest_start": 390, "latest_start": 530, "duration": [5, 8, 11], "soc_consumption": [26, 39, 57]},
 
     # {"id": 12, "from": 3, "to": 4, "earliest_start": 220, "latest_start": 360, "duration": [6, 8, 12], "soc_consumption": [28, 42, 61]},
     # {"id": 13, "from": 4, "to": 3, "earliest_start": 85, "latest_start": 200, "duration": [5, 8, 11], "soc_consumption": [26, 39, 57]},

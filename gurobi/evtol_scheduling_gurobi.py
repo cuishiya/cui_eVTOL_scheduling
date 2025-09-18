@@ -182,6 +182,31 @@ def solve_evtol_scheduling_with_chains(
     for c in range(num_chains):
         chain_start[c] = model.addVar(vtype=GRB.INTEGER, lb=0, ub=time_horizon, name=f"chain_start_{c}")
 
+    # 任务串的结束时间 (用于任务串间隔约束)
+    chain_end = {}
+    for c in range(num_chains):
+        chain_end[c] = model.addVar(vtype=GRB.INTEGER, lb=0, ub=time_horizon, name=f"chain_end_{c}")
+
+    # 任务串分配指示变量 (用于任务串间隔约束)
+    b_chain_evtol = {}
+    for c in range(num_chains):
+        for k in range(num_evtols):
+            b_chain_evtol[c, k] = model.addVar(vtype=GRB.BINARY, name=f"b_{c}_{k}")
+
+    # 任务串对分配指示变量 (用于任务串间隔约束)
+    both_assigned = {}
+    for k in range(num_evtols):
+        for c1 in range(num_chains):
+            for c2 in range(c1 + 1, num_chains):
+                both_assigned[c1, c2, k] = model.addVar(vtype=GRB.BINARY, name=f"both_assigned_{c1}_{c2}_{k}")
+
+    # 任务串顺序指示变量 (用于任务串间隔约束)
+    chain_order = {}
+    for k in range(num_evtols):
+        for c1 in range(num_chains):
+            for c2 in range(c1 + 1, num_chains):
+                chain_order[c1, c2, k] = model.addVar(vtype=GRB.BINARY, name=f"order_{c1}_{c2}_{k}")
+
     model.update()
 
     # ===== 2. 定义约束条件 =====
@@ -296,52 +321,41 @@ def solve_evtol_scheduling_with_chains(
     # 2.7 任务串之间的时间间隔约束
     chain_interval_time = 30  # 任务串之间的最小间隔时间（分钟）
 
-    # 辅助变量：任务串的结束时间
-    chain_end = {}
-    for c in range(num_chains):
-        chain_end[c] = model.addVar(vtype=GRB.INTEGER, lb=0, ub=time_horizon, name=f"chain_end_{c}")
-
     # 计算每个任务串的结束时间
     for c, chain in enumerate(task_chains):
         last_task_id = chain[-1]
         model.addConstr(chain_end[c] == task_end[last_task_id], f"chain_end_time_{c}")
 
+    # 定义任务串分配指示变量的约束
+    for c in range(num_chains):
+        for k in range(num_evtols):
+            model.addConstr(b_chain_evtol[c, k] == gp.quicksum(y[c, k, t] for t in range(time_horizon)), 
+                          f"chain_evtol_assignment_{c}_{k}")
+
     # 对于每架eVTOL，其执行的任意两个任务串之间必须有时间间隔
     for k in range(num_evtols):
         for c1 in range(num_chains):
             for c2 in range(c1 + 1, num_chains):
-                # b_c1_k = 1 表示任务串c1分配给eVTOL k
-                b_c1_k = model.addVar(vtype=GRB.BINARY, name=f"b_{c1}_{k}")
-                model.addConstr(b_c1_k == gp.quicksum(y[c1, k, t] for t in range(time_horizon)))
+                # 定义both_assigned约束: 当且仅当c1和c2都分配给eVTOL k时为1
+                model.addConstr(both_assigned[c1, c2, k] <= b_chain_evtol[c1, k], f"both_assigned_1_{c1}_{c2}_{k}")
+                model.addConstr(both_assigned[c1, c2, k] <= b_chain_evtol[c2, k], f"both_assigned_2_{c1}_{c2}_{k}")
+                model.addConstr(both_assigned[c1, c2, k] >= b_chain_evtol[c1, k] + b_chain_evtol[c2, k] - 1, 
+                              f"both_assigned_3_{c1}_{c2}_{k}")
 
-                # b_c2_k = 1 表示任务串c2分配给eVTOL k
-                b_c2_k = model.addVar(vtype=GRB.BINARY, name=f"b_{c2}_{k}")
-                model.addConstr(b_c2_k == gp.quicksum(y[c2, k, t] for t in range(time_horizon)))
-
-                # both_assigned = 1 表示c1和c2都分配给eVTOL k
-                both_assigned = model.addVar(vtype=GRB.BINARY, name=f"both_assigned_{c1}_{c2}_{k}")
-                model.addConstr(both_assigned <= b_c1_k)
-                model.addConstr(both_assigned <= b_c2_k)
-                model.addConstr(both_assigned >= b_c1_k + b_c2_k - 1)
-
-                # c1_before_c2 = 1 表示任务串c1在c2之前执行
-                c1_before_c2 = model.addVar(vtype=GRB.BINARY, name=f"order_{c1}_{c2}_{k}")
-
-                # Big-M 约束
+                # Big-M 约束确保任务串间隔
                 M = time_horizon
-                # 如果c1和c2都分配给k，则必须满足时间间隔约束
                 # 约束1: chain_end[c1] + interval <= chain_start[c2] OR c2在c1前
                 model.addConstr(
-                    chain_end[c1] + chain_interval_time <= chain_start[c2] + M * (1 - c1_before_c2) + M * (1 - both_assigned),
+                    chain_end[c1] + chain_interval_time <= chain_start[c2] + M * (1 - chain_order[c1, c2, k]) + M * (1 - both_assigned[c1, c2, k]),
                     f"chain_interval_1_{c1}_{c2}_{k}"
                 )
                 # 约束2: chain_end[c2] + interval <= chain_start[c1] OR c1在c2前
                 model.addConstr(
-                    chain_end[c2] + chain_interval_time <= chain_start[c1] + M * c1_before_c2 + M * (1 - both_assigned),
+                    chain_end[c2] + chain_interval_time <= chain_start[c1] + M * chain_order[c1, c2, k] + M * (1 - both_assigned[c1, c2, k]),
                     f"chain_interval_2_{c1}_{c2}_{k}"
                 )
 
-    # 2.7 任务时间窗约束
+    # 2.8 任务时间窗约束
     for i in range(num_tasks):
         model.addConstr(
             task_start[i] >= tasks[i]['earliest_start'],
@@ -521,172 +535,29 @@ def solve_evtol_scheduling_with_task_chains(
 def visualize_schedule_table_gurobi(result: Dict) -> None:
     """
     生成任务调度表的可视化图表 (Gurobi版本)
-
-    参数:
-        result: solve_evtol_scheduling_gurobi函数返回的结果字典
     """
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from visualization import visualize_schedule_table
+    
     if result["status"] not in ["optimal", "time_limit"]:
         print(f"无法可视化：模型求解状态为 {result['status']}，没有可行解")
         return
 
-    # 提取调度信息
-    schedule = result["schedule"]
-
-    # 对调度按开始时间排序
-    sorted_schedule = sorted(schedule, key=lambda x: x["start_time"])
-
-    # 创建图形
-    fig, ax = plt.subplots(figsize=(12, max(6, len(sorted_schedule) * 0.4)))
-
-    # 隐藏坐标轴
-    ax.axis('tight')
-    ax.axis('off')
-
-    # 准备表格数据
-    table_data = []
-    headers = ['任务ID', 'eVTOL ID', '起点', '终点', '开始时间', '结束时间', '航线', '持续时间', '延误']
-
-    for task in sorted_schedule:
-        duration = task["end_time"] - task["start_time"]
-        table_data.append([
-            task["task_id"],
-            task["evtol_id"],
-            task["from"],
-            task["to"],
-            task["start_time"],
-            task["end_time"],
-            task["route"],
-            duration,
-            task["delay"]
-        ])
-
-    # 创建表格
-    table = ax.table(
-        cellText=table_data,
-        colLabels=headers,
-        loc='center',
-        cellLoc='center',
-        colColours=['#f2f2f2'] * len(headers)
-    )
-
-    # 设置表格样式
-    table.auto_set_font_size(False)
-    table.set_fontsize(9)
-    table.scale(1.2, 1.2)  # 调整表格大小
-
-    # 设置标题
-    plt.title('eVTOL 任务调度表', pad=20)
-
-    # 保存图形
-    plt.savefig('picture_result/evtol_schedule_table_gurobi.png', dpi=300, bbox_inches='tight')
-
-    # 显示图形
-    plt.show()
+    visualize_schedule_table(result["schedule"], "Gurobi", "picture_result/evtol_schedule_table_gurobi.png")
 
 def visualize_schedule_gurobi(result: Dict, time_horizon: int = 1440) -> None:
     """
     生成调度结果的可视化甘特图 (Gurobi版本)
-
-    参数:
-        result: solve_evtol_scheduling_gurobi函数返回的结果字典
-        time_horizon: 调度时间范围（分钟）
     """
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from visualization import visualize_schedule_gantt
+    
     if result["status"] not in ["optimal", "time_limit"]:
         print(f"无法可视化：模型求解状态为 {result['status']}，没有可行解")
         return
 
-    # 提取调度信息
-    schedule = result["schedule"]
-
-    # 确定eVTOL数量 - 修复：显示所有eVTOL，包括没有分配任务的
-    evtol_ids = set([task["evtol_id"] for task in schedule])
-    if evtol_ids:
-        num_evtols = max(evtol_ids) + 1  # 使用最大ID+1确保包含所有eVTOL
-    else:
-        num_evtols = 1  # 至少显示1个eVTOL
-
-    # 创建图形 - 调整高度使任务条更加紧凑
-    fig, ax = plt.subplots(figsize=(20, max(6, num_evtols * 1.4)))
-
-    # 定义颜色
-    colors = plt.cm.tab10(np.linspace(0, 1, 10))
-
-    # 绘制任务
-    for task in schedule:
-        evtol_id = task["evtol_id"]
-        start = task["start_time"]
-        duration = task["end_time"] - task["start_time"]
-
-        # 绘制任务块 - 减小高度使其更紧凑美观
-        task_bar = ax.barh(evtol_id, duration, left=start, height=0.35,
-                          color=colors[task["route"] % len(colors)],
-                          edgecolor='white', linewidth=1.5, alpha=0.8)
-
-        # 添加任务标签 - 在任务条内显示任务ID和起点→终点
-        task_label = f"T{task['task_id']}"
-        route_label = f"{task['from']}→{task['to']}"
-
-        # 任务ID显示在任务条上方
-        ax.text(start + duration/2, evtol_id + 0.25, task_label,
-                ha='center', va='center', color='black', fontsize=9, weight='bold')
-
-        # 起点→终点显示在任务条下方
-        ax.text(start + duration/2, evtol_id - 0.25, route_label,
-                ha='center', va='center', color='darkblue', fontsize=8)
-
-    # 设置图形属性
-    ax.set_xlabel('时间 (分钟)')
-    ax.set_ylabel('eVTOL ID')
-    ax.set_title('eVTOL 调度甘特图 (Gurobi)')
-    ax.set_yticks(range(num_evtols))
-    ax.set_yticklabels([f'eVTOL {i}' for i in range(num_evtols)])
-    
-    # 设置更细致的时间刻度
-    # 计算实际使用的时间范围
-    if schedule:
-        min_time = min(task["start_time"] for task in schedule)
-        max_time = max(task["end_time"] for task in schedule)
-        time_range = max_time - min_time
-        
-        # 根据时间范围动态调整刻度间隔
-        if time_range <= 120:  # 2小时内，每10分钟一个刻度
-            tick_interval = 6
-        elif time_range <= 300:  # 5小时内，每20分钟一个刻度
-            tick_interval = 12
-        elif time_range <= 600:  # 10小时内，每30分钟一个刻度
-            tick_interval = 18
-        else:  # 10小时以上，每60分钟一个刻度
-            tick_interval = 18
-        
-        # 生成时间刻度
-        start_tick = (min_time // tick_interval) * tick_interval
-        end_tick = ((max_time // tick_interval) + 1) * tick_interval
-        time_ticks = list(range(int(start_tick), int(end_tick) + 1, tick_interval))
-        
-        ax.set_xticks(time_ticks)
-        ax.set_xlim(start_tick - tick_interval, end_tick + tick_interval)
-    else:
-        # 如果没有任务，使用默认刻度
-        ax.set_xticks(range(0, time_horizon + 1, 30))
-    
-    ax.grid(True, axis='x', linestyle='--', alpha=0.7)
-
-    # 添加高度层颜色说明（航线颜色图例）
-    num_routes = 3  # 假设有3条航线
-    legend_elements = []
-    for h in range(num_routes):
-        legend_elements.append(plt.Rectangle((0, 0), 1, 1, color=colors[h % len(colors)],
-                              label=f'航线 {h} (高度层 {h})'))
-
-    # 将图例放在右上角且在调度图外面
-    # 调整图形边距，为右侧图例留出空间
-    plt.subplots_adjust(right=0.85)
-    # 使用bbox_to_anchor将图例放在坐标轴外部
-    ax.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(1.01, 1),
-             title='高度层/航线说明')
-
-    # 保存图形
-    plt.savefig('picture_result/evtol_schedule_gurobi.png', dpi=300, bbox_inches='tight')
-
-    # 显示图形
-    plt.show()
+    visualize_schedule_gantt(result["schedule"], "Gurobi", "picture_result/evtol_schedule_gurobi.png", time_horizon)

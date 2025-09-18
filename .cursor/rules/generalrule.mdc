@@ -1,0 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+代码尽量简洁易读，不要太多调试代码内容让代码看着多而杂
+
+不需帮我运行指令
