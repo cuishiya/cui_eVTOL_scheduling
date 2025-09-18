@@ -380,8 +380,8 @@ def solve_evtol_scheduling_with_chains(
     benchmarked_delay = total_delay / delay_baseline
     
     # 权重参数 (现在两个目标在相同量级)
-    alpha = 0.3  # 能耗权重
-    beta = 0.7   # 延误权重 (alpha + beta = 1.0)
+    alpha = 0.2  # 能耗权重
+    beta = 0.8   # 延误权重 (alpha + beta = 1.0)
     
     model.setObjective(alpha * benchmarked_energy + beta * benchmarked_delay, GRB.MINIMIZE)
 
@@ -578,7 +578,7 @@ def visualize_schedule_table_gurobi(result: Dict) -> None:
     plt.title('eVTOL 任务调度表', pad=20)
 
     # 保存图形
-    plt.savefig('evtol_schedule_table_gurobi.png', dpi=300, bbox_inches='tight')
+    plt.savefig('picture_result/evtol_schedule_table_gurobi.png', dpi=300, bbox_inches='tight')
 
     # 显示图形
     plt.show()
@@ -686,7 +686,7 @@ def visualize_schedule_gurobi(result: Dict, time_horizon: int = 1440) -> None:
              title='高度层/航线说明')
 
     # 保存图形
-    plt.savefig('evtol_schedule_gurobi.png', dpi=300, bbox_inches='tight')
+    plt.savefig('picture_result/evtol_schedule_gurobi.png', dpi=300, bbox_inches='tight')
 
     # 显示图形
     plt.show()
