@@ -125,13 +125,13 @@ def main():
     print("\n🚀 开始NSGA-II优化:")
     
     # 算法参数
-    population_size = 100  # 较小的种群便于观察
-    generations = 15      # 较少的代数便于演示
+    population_size = 300  # 较小的种群便于观察
+    generations = 60      # 较少的代数便于演示
     
     print(f"   种群大小: {population_size}")
     print(f"   进化代数: {generations}")
     print(f"   交叉概率: 0.9")
-    print(f"   变异概率: {1.0/total_dims:.4f}")
+    print(f"   变异概率: {8.0/total_dims:.4f}")
     print(f"   注意: 每一代的进化信息都会被打印出来")
     
     # 求解
