@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-eVTOL调度PyGMO NSGA-II示例
+eVTOL调度PyGMO多目标算法示例
+支持NSGA-II、MOEA/D、NSPSO、MACO算法
 """
 
 import sys
@@ -16,7 +17,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data_definitions import get_tasks, get_evtols, get_locations
 from gurobi.evtol_scheduling_gurobi import generate_task_chains
 from pygmo_multi.evtol_scheduling_pygmo_multi import (
-    solve_pygmo_nsga2, 
+    solve_pygmo_multi_objective, 
     visualize_evolution_curves, 
     visualize_pareto_front_evolution
 )
@@ -33,7 +34,7 @@ def main():
     使用NSGA-II算法进行真正的多目标优化，无权重组合
     """
     print("="*60)
-    print("   eVTOL调度问题 - PyGMO NSGA-II 多目标优化")
+    print("   eVTOL调度问题 - PyGMO 多目标优化算法")
     print("="*60)
     
     # 加载数据
@@ -62,7 +63,7 @@ def main():
     
     # 遗传编码方案详细说明
     print("\n🧬 遗传编码方案说明:")
-    print("   这是一个实数编码方案，完全对应gurobi数学模型的决策变量")
+    print("   这是一个纯整数编码方案，完全对应gurobi数学模型的决策变量")
     print("")
     print("   决策变量对应关系:")
     print("   ┌─ gurobi_multi变量 ──────────────────────┬─ PyGMO编码 ─────────────────┐")
@@ -92,15 +93,15 @@ def main():
     print(f"   • 总维度: {total_dims}维")
     print("")
     print("   编码示例 (前8维):")
-    print("   [0.3, 0.7, 0.1, 0.4, 0.8, 0.2, 0.6, 0.9]")
+    print("   [1, 504, 0, 288, 2, 0, 2, 1]")
     print("    ├─┬─┘ ├─┬─┘ ├───┘ ├───┘ ├───┘ ├───┘")
-    print("    │ │   │ │   │     │     │     └─ 任务2航线: int(0.9*3)=2")
-    print("    │ │   │ │   │     │     └─ 任务1航线: int(0.2*3)=0")
-    print("    │ │   │ │   │     └─ 任务0航线: int(0.8*3)=2") 
-    print("    │ │   │ └─ 串1时间: int(0.4*720)=288分钟")
-    print("    │ │   └─ 串1eVTOL: int(0.1*5)=0号eVTOL")
-    print("    │ └─ 串0时间: int(0.7*720)=504分钟")
-    print("    └─ 串0eVTOL: int(0.3*5)=1号eVTOL")
+    print("    │ │   │ │   │     │     │     └─ 任务2航线: 直接整数1")
+    print("    │ │   │ │   │     │     └─ 任务1航线: 直接整数2")
+    print("    │ │   │ │   │     └─ 任务0航线: 直接整数0") 
+    print("    │ │   │ └─ 串1时间: 直接整数288分钟")
+    print("    │ │   └─ 串1eVTOL: 直接整数0号eVTOL")
+    print("    │ └─ 串0时间: 直接整数504分钟")
+    print("    └─ 串0eVTOL: 直接整数1号eVTOL")
     
     # 约束条件对应说明
     print("\n📋 约束条件对应关系:")
@@ -121,28 +122,40 @@ def main():
     print("   • 🔥 重要: 这是真正的多目标优化，无权重组合！")
     print("   • 对应gurobi_multi的epsilon约束方法的两个独立目标")
     
-    # 运行优化
-    print("\n🚀 开始NSGA-II优化:")
+    # 算法选择
+    print("\n🔧 算法选择:")
+    print("   可选算法:")
+    print("   • nsga2  - NSGA-II (非支配排序遗传算法2)")
+    print("   • moead  - MOEA/D (基于分解的多目标进化算法)")
+    print("   • nspso  - NSPSO (非支配排序粒子群优化算法)")
+    print("   • maco   - MACO (多目标蚁群优化算法)")
+    
+    # ==================== 算法选择配置 ====================
+    # 在这里修改想要使用的算法
+    selected_algorithm = 'maco'  # 可选: 'nsga2', 'moead', 'nspso', 'maco'
+    # ===================================================
+    
+    print(f"\n🚀 开始 {selected_algorithm.upper()} 优化:")
     
     # 算法参数
     population_size = 300  # 较小的种群便于观察
-    generations = 60      # 较少的代数便于演示
+    generations = 20      # 较少的代数便于演示
     
+    print(f"   算法: {selected_algorithm}")
     print(f"   种群大小: {population_size}")
     print(f"   进化代数: {generations}")
-    print(f"   交叉概率: 0.9")
-    print(f"   变异概率: {8.0/total_dims:.4f}")
     print(f"   注意: 每一代的进化信息都会被打印出来")
     
     # 求解
-    result = solve_pygmo_nsga2(
+    result = solve_pygmo_multi_objective(
         tasks=tasks,
         evtols=evtols, 
         task_chains=task_chains,
         time_horizon=720,
         population_size=population_size,
         generations=generations,
-        verbose=True
+        verbose=True,
+        algorithm=selected_algorithm
     )
     
     if result is None:
@@ -224,8 +237,8 @@ def main():
     print("   • PyGMO实现与gurobi_multi数学模型完全对应")
     print("   • 相同的决策变量、约束条件、多目标函数")
     print("   • 真正的多目标优化，无权重组合")
-    print("   • 实数编码有效处理复杂的组合优化问题")
-    print("   • NSGA-II算法成功找到多个帕累托最优解")
+    print("   • 纯整数编码直接对应离散决策变量，更符合问题本质")
+    print("   • 多目标算法成功找到多个帕累托最优解")
     print("   • 可以与gurobi_multi epsilon约束方法进行性能对比分析")
     print("\n📊 可视化输出:")
     print("   • 最终帕累托前沿图")

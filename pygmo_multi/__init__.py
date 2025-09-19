@@ -9,17 +9,17 @@ PyGMO多目标优化模块 (改进版)
 核心特性:
 - 与gurobi_multi数学模型100%对应的建模方案
 - 真正的多目标优化，无权重组合，直接优化两个独立目标
-- 高效的实数编码处理复杂组合优化问题
-- NSGA-II算法寻找帕累托最优解集
+- 高效的纯整数编码处理复杂组合优化问题
+- 多种多目标算法：NSGA-II、MOEA/D、NSPSO、MACO
 - 使用惩罚函数处理所有约束条件
 - 优化的算法参数确保解的多样性
 
 主要功能:
 - eVTOLSchedulingProblem: 问题定义类，封装数学模型
-- solve_pygmo_nsga2: NSGA-II求解函数
+- solve_pygmo_multi_objective: 多目标算法求解函数（支持多种算法）
 
 使用示例:
-    from pygmo_multi import eVTOLSchedulingProblem, solve_pygmo_nsga2
+    from pygmo_multi import eVTOLSchedulingProblem, solve_pygmo_multi_objective
     from data_definitions import get_tasks, get_evtols
     from gurobi.evtol_scheduling_gurobi import generate_task_chains
     
@@ -29,14 +29,15 @@ PyGMO多目标优化模块 (改进版)
     task_chains = generate_task_chains(tasks, max_chain_length=3)
     
     # 求解
-    result = solve_pygmo_nsga2(
+    result = solve_pygmo_multi_objective(
         tasks=tasks,
         evtols=evtols,
         task_chains=task_chains,
         time_horizon=720,
         population_size=100,
         generations=200,
-        verbose=True
+        verbose=True,
+        algorithm='nsga2'  # 可选: 'nsga2', 'moead', 'nspso', 'maco'
     )
     
     # 分析结果
@@ -72,22 +73,24 @@ PyGMO多目标优化模块 (改进版)
 - 确保公平的多目标算法性能比较
 
 算法参数:
-- 种群大小: ≥8且为4的倍数 (NSGA-II要求)
+- 种群大小: ≥8且为4的倍数
 - 进化代数: 推荐200代
-- 交叉概率: 0.9
-- 变异概率: 1.0/dimensions
+- 算法选择: 'nsga2'(默认), 'moead', 'nspso', 'maco'
+- 参数自动针对不同算法优化
 """
 
 from .evtol_scheduling_pygmo_multi import (
     eVTOLSchedulingProblem, 
-    solve_pygmo_nsga2,
+    solve_pygmo_multi_objective,
+    solve_pygmo_nsga2,  # 向后兼容
     visualize_evolution_curves,
     visualize_pareto_front_evolution
 )
 
 __all__ = [
     'eVTOLSchedulingProblem',
-    'solve_pygmo_nsga2',
+    'solve_pygmo_multi_objective',
+    'solve_pygmo_nsga2',  # 向后兼容
     'visualize_evolution_curves',
     'visualize_pareto_front_evolution'
 ]

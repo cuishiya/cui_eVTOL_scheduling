@@ -448,15 +448,26 @@ class eVTOLSchedulingProblem:
             print(f"适应度计算错误: {e}")
             return [50000.0, 50000.0]
 
-def solve_pygmo_nsga2(tasks, evtols, task_chains, time_horizon=720, 
-                     population_size=100, generations=200, verbose=True):
+def solve_pygmo_multi_objective(tasks, evtols, task_chains, time_horizon=720, 
+                               population_size=100, generations=200, verbose=True, 
+                               algorithm='nsga2'):
     """
-    使用NSGA-II算法求解eVTOL调度问题
-    """
-    if verbose:
-        print("=== PyGMO NSGA-II 多目标优化求解 (纯整数编码) ===")
+    使用多目标算法求解eVTOL调度问题
     
-    # 确保population_size符合NSGA-II要求
+    参数:
+        algorithm: 算法选择 ('nsga2', 'moead', 'nspso', 'maco')
+    """
+    algo_names = {
+        'nsga2': 'NSGA-II',
+        'moead': 'MOEA/D (基于分解的多目标进化算法)',
+        'nspso': 'NSPSO (非支配排序粒子群优化算法)',
+        'maco': 'MACO (多目标蚁群优化算法)'
+    }
+    
+    if verbose:
+        print(f"=== PyGMO {algo_names.get(algorithm, algorithm)} 多目标优化求解 (纯整数编码) ===")
+    
+    # 确保population_size符合要求
     if population_size < 8:
         population_size = 8
     if population_size % 4 != 0:
@@ -469,15 +480,54 @@ def solve_pygmo_nsga2(tasks, evtols, task_chains, time_horizon=720,
         # 创建PyGMO问题对象
         pg_problem = pg.problem(problem)
         
-        # 创建算法 - 针对整数编码优化参数
-        nsga2 = pg.nsga2(
-            gen=1,  # 每次只进化1代
-            cr=0.8,     # 降低交叉率，适应整数编码
-            eta_c=10,   # 降低交叉分布指数，增加探索性
-            m=2.0/problem.dimensions,  # 提高变异率，适应离散搜索
-            eta_m=10    # 降低变异分布指数，增加变异强度
-        )
-        algo = pg.algorithm(nsga2)
+        # 根据选择的算法创建算法实例
+        if algorithm == 'nsga2':
+            # NSGA-II - 针对整数编码优化参数
+            algo_obj = pg.nsga2(
+                gen=1,  # 每次只进化1代
+                cr=0.8,     # 降低交叉率，适应整数编码
+                eta_c=10,   # 降低交叉分布指数，增加探索性
+                m=8.0/problem.dimensions,  # 提高变异率，适应离散搜索
+                eta_m=10    # 降低变异分布指数，增加变异强度
+            )
+        elif algorithm == 'moead':
+            # MOEA/D - 基于分解的多目标进化算法
+            algo_obj = pg.moead(
+                gen=1,
+                weight_generation='grid',     # 网格权重生成
+                decomposition='tchebycheff',  # 切比雪夫分解方法
+                neighbours=min(20, problem.dimensions // 2),  # 邻居数量
+                CR=0.9,                      # 高交叉率适合组合优化 (注意大写)
+                F=0.8,                       # 差分进化参数 (注意大写)
+                eta_m=5,                     # 低变异指数增强探索
+                realb=0.9,                   # 高替换概率
+                limit=3                      # 允许更多替换
+            )
+        elif algorithm == 'nspso':
+            # NSPSO - 非支配排序粒子群优化算法
+            algo_obj = pg.nspso(
+                gen=1,
+                omega=0.6,                   # 惯性权重
+                c1=2.0,                      # 认知系数
+                c2=2.0,                      # 社会系数
+                chi=1.0,                     # 收缩因子
+                v_coeff=0.5,                 # 速度系数
+                leader_selection_range=min(10, population_size // 10),  # 领导者选择范围
+                diversity_mechanism="crowding distance"  # 多样性机制
+            )
+        elif algorithm == 'maco':
+            # MACO - 多目标蚁群优化算法
+            algo_obj = pg.maco(
+                gen=1,                  # 代数
+                ker=min(63, population_size),  # 内核大小
+                q=1.0,                 # 收敛速度参数
+                threshold=1,           # 阈值
+                n_gen_mark=7           # 标记代数
+            )
+        else:
+            raise ValueError(f"不支持的算法: {algorithm}. 支持的算法: nsga2, moead, nspso, maco")
+        
+        algo = pg.algorithm(algo_obj)
         
         # 创建种群
         pop = pg.population(pg_problem, population_size)
@@ -521,43 +571,53 @@ def solve_pygmo_nsga2(tasks, evtols, task_chains, time_horizon=720,
                 max_fitness2 = np.max(fitness2)
                 avg_fitness2 = np.mean(fitness2)
                 
-                # 计算当前帕累托前沿数量 (使用适应度进行筛选用于显示)
-                pareto_indices = pg.non_dominated_front_2d(fitness_values)
-                pareto_count = len(pareto_indices)
+                # 先计算所有个体的真实目标值
+                current_individuals = pop.get_x()
+                all_real_objectives = []
+                valid_indices = []
                 
-                # 计算帕累托前沿的适应度范围 (用于显示)
-                if pareto_count > 0:
-                    pareto_fitness1 = fitness1[pareto_indices]
-                    pareto_fitness2 = fitness2[pareto_indices]
+                for idx in range(len(current_individuals)):
+                    individual = current_individuals[idx]
+                    solution = problem._decode_solution(individual)
+                    if solution is not None:
+                        real_energy, real_delay = problem._calculate_objectives(solution)
+                        all_real_objectives.append([real_energy, real_delay])
+                        valid_indices.append(idx)
+                
+                # 基于真实目标值进行帕累托筛选 (用于显示和统计)
+                if all_real_objectives:
+                    real_objectives_array = np.array(all_real_objectives)
+                    real_pareto_indices = pg.non_dominated_front_2d(real_objectives_array)
+                    pareto_count = len(real_pareto_indices)
+                    
+                    # 获取帕累托前沿的真实目标值
+                    pareto_real_objectives = [all_real_objectives[i] for i in real_pareto_indices]
+                    pareto_front_points = [(obj[0], obj[1]) for obj in pareto_real_objectives]
+                    
+                    # 计算真实目标值的范围 (用于显示)
+                    pareto_energies = [obj[0] for obj in pareto_real_objectives]
+                    pareto_delays = [obj[1] for obj in pareto_real_objectives]
+                    pareto_energy_range = f"{min(pareto_energies):.1f}-{max(pareto_energies):.1f}"
+                    pareto_delay_range = f"{min(pareto_delays):.1f}-{max(pareto_delays):.1f}"
+                    
+                    # 获取对应的适应度值 (用于显示进化进度)
+                    pareto_global_indices = [valid_indices[i] for i in real_pareto_indices]
+                    pareto_fitness1 = fitness1[pareto_global_indices]
+                    pareto_fitness2 = fitness2[pareto_global_indices]
                     pareto_fitness1_range = f"{np.min(pareto_fitness1):.1f}-{np.max(pareto_fitness1):.1f}"
                     pareto_fitness2_range = f"{np.min(pareto_fitness2):.1f}-{np.max(pareto_fitness2):.1f}"
                     
-                    # 计算超体积 (Hypervolume) - 使用适应度
-                    ref_point = [np.max(fitness1) * 1.1, np.max(fitness2) * 1.1]
+                    # 计算超体积 (Hypervolume) - 使用真实目标值
+                    ref_point = [max(pareto_energies) * 1.1, max(pareto_delays) * 1.1]
                     try:
-                        hv = pg.hypervolume(fitness_values[pareto_indices])
+                        hv = pg.hypervolume(real_objectives_array[real_pareto_indices])
                         hypervolume = hv.compute(ref_point)
                     except:
                         hypervolume = 0.0
-                    
-                    # 计算帕累托前沿的真实目标值 (用于帕累托前沿图)
-                    real_pareto_objectives = []
-                    current_individuals = pop.get_x()
-                    for idx in pareto_indices:
-                        individual = current_individuals[idx]
-                        solution = problem._decode_solution(individual)
-                        if solution is not None:
-                            real_energy, real_delay = problem._calculate_objectives(solution)
-                            real_pareto_objectives.append((real_energy, real_delay))
-                    
-                    # 对真实目标值再次进行帕累托筛选
-                    if real_pareto_objectives:
-                        real_objectives_array = np.array(real_pareto_objectives)
-                        real_pareto_indices = pg.non_dominated_front_2d(real_objectives_array)
-                        pareto_front_points = [real_pareto_objectives[i] for i in real_pareto_indices]
-                    else:
-                        pareto_front_points = []
                 else:
+                    pareto_count = 0
+                    pareto_energy_range = "N/A"
+                    pareto_delay_range = "N/A"
                     pareto_fitness1_range = "N/A"
                     pareto_fitness2_range = "N/A"
                     hypervolume = 0.0
@@ -578,8 +638,8 @@ def solve_pygmo_nsga2(tasks, evtols, task_chains, time_horizon=720,
                       f"帕累托解: {pareto_count:2d} | "
                       f"适应度1: {min_fitness1:6.1f}-{max_fitness1:6.1f} (avg:{avg_fitness1:6.1f}) | "
                       f"适应度2: {min_fitness2:6.1f}-{max_fitness2:6.1f} (avg:{avg_fitness2:6.1f}) | "
-                      f"前沿适应度1: {pareto_fitness1_range} | "
-                      f"前沿适应度2: {pareto_fitness2_range}")
+                      f"前沿能耗: {pareto_energy_range} | "
+                      f"前沿延误: {pareto_delay_range}")
                 
                 # 每10代或最后一代打印详细信息
                 if (gen + 1) % 10 == 0 or gen == generations - 1:
@@ -591,15 +651,19 @@ def solve_pygmo_nsga2(tasks, evtols, task_chains, time_horizon=720,
                     print(f"  适应度2统计: 最小={min_fitness2:.1f}, 最大={max_fitness2:.1f}, 平均={avg_fitness2:.1f}")
                     
                     if pareto_count > 0:
+                        print(f"  帕累托前沿真实能耗范围: {pareto_energy_range}")
+                        print(f"  帕累托前沿真实延误范围: {pareto_delay_range}")
                         print(f"  帕累托前沿适应度1范围: {pareto_fitness1_range}")
                         print(f"  帕累托前沿适应度2范围: {pareto_fitness2_range}")
                         
-                        # 显示帕累托前沿的前3个解
+                        # 显示帕累托前沿的前3个解 (真实目标值 + 适应度值)
                         print(f"  帕累托前沿解示例 (前3个):")
-                        for i, idx in enumerate(pareto_indices[:3]):
-                            fitness1_val = fitness1[idx]
-                            fitness2_val = fitness2[idx]
-                            print(f"    解{i+1}: 适应度1={fitness1_val:.1f}, 适应度2={fitness2_val:.1f}")
+                        for i in range(min(3, len(pareto_real_objectives))):
+                            real_obj = pareto_real_objectives[i]
+                            global_idx = pareto_global_indices[i]
+                            fitness1_val = fitness1[global_idx]
+                            fitness2_val = fitness2[global_idx]
+                            print(f"    解{i+1}: 能耗={real_obj[0]:.1f}, 延误={real_obj[1]:.1f} | 适应度=({fitness1_val:.1f}, {fitness2_val:.1f})")
                     
                     print("-" * 80)
         
@@ -636,13 +700,13 @@ def solve_pygmo_nsga2(tasks, evtols, task_chains, time_horizon=720,
         
         if verbose:
             print("\n🎉 进化完成!")
-            print(f"最终帕累托前沿解数量: {len(pareto_front)} (基于真实目标值筛选)")
+            print(f"最终帕累托前沿解数量: {len(pareto_front)}")
             if pareto_front:
                 energies = [sol['energy'] for sol in pareto_front]
                 delays = [sol['delay'] for sol in pareto_front]
                 print(f"最终能耗范围: {min(energies):.1f} - {max(energies):.1f}")
                 print(f"最终延误范围: {min(delays):.1f} - {max(delays):.1f}")
-                print("注: 最终帕累托前沿基于真实目标值筛选，进化过程显示的是包含约束惩罚的适应度值")
+                print("注: 进化过程和最终结果的帕累托前沿都基于真实目标值筛选，适应度仅用于进化选择")
         
         # 选择一个前沿解进行可视化
         if pareto_front:
@@ -834,4 +898,25 @@ def visualize_pareto_front_evolution(evolution_data, save_path="picture_result/p
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.show()
     
-    print(f"帕累托前沿进化图已保存到: {save_path}") 
+    print(f"帕累托前沿进化图已保存到: {save_path}")
+
+
+# 向后兼容的别名函数
+def solve_pygmo_nsga2(tasks, evtols, task_chains, time_horizon=720, 
+                     population_size=100, generations=200, verbose=True, 
+                     algorithm='nsga2'):
+    """
+    向后兼容的别名函数
+    
+    推荐使用新函数名: solve_pygmo_multi_objective
+    """
+    return solve_pygmo_multi_objective(
+        tasks=tasks,
+        evtols=evtols,
+        task_chains=task_chains,
+        time_horizon=time_horizon,
+        population_size=population_size,
+        generations=generations,
+        verbose=verbose,
+        algorithm=algorithm
+    ) 
