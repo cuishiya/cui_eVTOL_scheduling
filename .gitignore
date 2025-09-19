@@ -2,8 +2,8 @@
 # picture_result/
 
 # 如果您想保留文件夹但忽略其中的文件，可以使用：
-# picture_result/*
-# !picture_result/.gitkeep
+picture_result/*
+!picture_result/.gitkeep
 
 # Python 相关
 __pycache__/
