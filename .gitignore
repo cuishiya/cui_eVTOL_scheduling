@@ -1,5 +1,5 @@
 # 忽略图片结果文件夹中的所有内容
-picture_result/
+# picture_result/
 
 # 如果您想保留文件夹但忽略其中的文件，可以使用：
 # picture_result/*
