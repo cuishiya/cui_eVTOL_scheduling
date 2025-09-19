@@ -126,7 +126,7 @@ def main():
     
     # 算法参数
     population_size = 300  # 较小的种群便于观察
-    generations = 60      # 较少的代数便于演示
+    generations = 50      # 较少的代数便于演示
     
     print(f"   种群大小: {population_size}")
     print(f"   进化代数: {generations}")
